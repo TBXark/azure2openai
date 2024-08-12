@@ -102,8 +102,7 @@ func azureRedirect(endpoint string, config *Config) func(http.ResponseWriter, *h
 		return nil
 	}
 	return func(writer http.ResponseWriter, request *http.Request) {
-		err := handler(writer, request)
-		if err != nil {
+		if err := handler(writer, request); err != nil {
 			var httpErr *HTTPError
 			if errors.As(err, &httpErr) {
 				http.Error(writer, httpErr.Message, httpErr.Code)

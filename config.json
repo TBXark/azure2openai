@@ -4,8 +4,8 @@
     "image_generations": "https://YOUR_NAME.openai.azure.com/openai/deployments/%s/images/generations?api-version=2024-02-15-preview",
     "models": "https://YOUR_NAME.openai.azure.com/openai/models?api-version=2024-06-01"
   },
-  "address":"0.0.0.0:8789",
   "model_map": {
     "gpt-3.5-turbo": "gpt-35-turbo"
-  }
+  },
+  "address":"0.0.0.0:8789"
 }
