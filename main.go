@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -12,63 +13,80 @@ import (
 	"strings"
 )
 
-func main() {
-	c := flag.String("config", "config.json", "config file path")
-	flag.Parse()
+type Config struct {
+	EndpointFormat struct {
+		ChatCompletions  string `json:"chat_completions"`
+		ImageGenerations string `json:"image_generations"`
+		Models           string `json:"models"`
+	} `json:"endpoint_format"`
+	ModelMap map[string]string `json:"model_map"`
+	Address  string            `json:"address"`
+}
 
-	file, err := os.ReadFile(*c)
+func NewConfig(path string) (*Config, error) {
+	file, err := os.ReadFile(path)
 	if err != nil {
-		log.Panicf("read config file error: %v", err)
+		return nil, err
 	}
-	var config struct {
-		EndpointFormat struct {
-			ChatCompletions  string `json:"chat_completions"`
-			ImageGenerations string `json:"image_generations"`
-		} `json:"endpoint_format"`
-		ModelMap map[string]string `json:"model_map"`
-		Address  string            `json:"address"`
-	}
+	var config Config
 	err = json.Unmarshal(file, &config)
 	if err != nil {
-		log.Panicf("parse config file error: %v", err)
+		return nil, err
 	}
+	return &config, nil
+}
 
-	handler := func(urlFormat string, writer http.ResponseWriter, request *http.Request) {
-		var body map[string]any
-		e := json.NewDecoder(request.Body).Decode(&body)
-		if e != nil {
-			http.Error(writer, "invalid request body", http.StatusBadRequest)
-			return
+type HTTPError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *HTTPError) Error() string {
+	return e.Message
+}
+
+func azureRedirect(endpoint string, config *Config) func(http.ResponseWriter, *http.Request) {
+	handler := func(writer http.ResponseWriter, request *http.Request) error {
+
+		var reqBody io.Reader = nil
+		var uri = endpoint
+
+		if request.Method == http.MethodPost {
+			var body map[string]any
+			err := json.NewDecoder(request.Body).Decode(&body)
+			if err != nil {
+				return &HTTPError{http.StatusBadRequest, err.Error()}
+			}
+
+			if model, ok := body["model"].(string); ok {
+				if m, exist := config.ModelMap[model]; exist {
+					model = m
+				}
+				uri = fmt.Sprintf(uri, model)
+				delete(body, "model")
+			}
+
+			bodyBytes, err := json.Marshal(body)
+			if err != nil {
+				return err
+			}
+			reqBody = bytes.NewReader(bodyBytes)
 		}
-		model, ok := body["model"].(string)
-		if !ok {
-			http.Error(writer, "invalid model", http.StatusBadRequest)
-			return
-		}
-		if m, exist := config.ModelMap[model]; exist {
-			model = m
-		}
-		u := fmt.Sprintf(urlFormat, model)
-		delete(body, "model")
-		bodyBytes, e := json.Marshal(body)
-		if e != nil {
-			http.Error(writer, e.Error(), http.StatusInternalServerError)
-			return
-		}
-		req, e := http.NewRequest(http.MethodPost, u, bytes.NewReader(bodyBytes))
-		if e != nil {
-			http.Error(writer, e.Error(), http.StatusInternalServerError)
-			return
+
+		req, err := http.NewRequest(request.Method, uri, reqBody)
+		if err != nil {
+			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		token := request.Header.Get("Authorization")
 		if token != "" && strings.HasPrefix(token, "Bearer ") {
 			req.Header.Set("api-key", token[7:])
+			req.Header.Del("Authorization")
 		}
-		resp, e := http.DefaultClient.Do(req)
-		if e != nil {
-			http.Error(writer, e.Error(), http.StatusInternalServerError)
-			return
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
 		}
 		defer resp.Body.Close()
 		for k, v := range resp.Header {
@@ -77,18 +95,37 @@ func main() {
 			}
 		}
 		writer.WriteHeader(resp.StatusCode)
-		_, e = io.Copy(writer, resp.Body)
-		if e != nil {
-			http.Error(writer, e.Error(), http.StatusInternalServerError)
-			return
+		_, err = io.Copy(writer, resp.Body)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	return func(writer http.ResponseWriter, request *http.Request) {
+		err := handler(writer, request)
+		if err != nil {
+			var httpErr *HTTPError
+			if errors.As(err, &httpErr) {
+				http.Error(writer, httpErr.Message, httpErr.Code)
+			} else {
+				http.Error(writer, err.Error(), http.StatusInternalServerError)
+			}
 		}
 	}
-	http.HandleFunc("/v1/chat/completions", func(writer http.ResponseWriter, request *http.Request) {
-		handler(config.EndpointFormat.ChatCompletions, writer, request)
-	})
-	http.HandleFunc("images/generations", func(writer http.ResponseWriter, request *http.Request) {
-		handler(config.EndpointFormat.ImageGenerations, writer, request)
-	})
+}
+
+func main() {
+	c := flag.String("config", "config.json", "config file path")
+	flag.Parse()
+
+	config, err := NewConfig(*c)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	http.HandleFunc("/v1/chat/completions", azureRedirect(config.EndpointFormat.ChatCompletions, config))
+	http.HandleFunc("images/generations", azureRedirect(config.EndpointFormat.ImageGenerations, config))
+	http.HandleFunc("/v1/models", azureRedirect(config.EndpointFormat.Models, config))
 	log.Printf("listening on %s", config.Address)
 	log.Fatal(http.ListenAndServe(config.Address, nil))
 }
