@@ -1,69 +1,67 @@
 ---
 - name: Build and deploy azure2openai
-  hosts: localhost
+  hosts: web_servers
 
   vars:
     project_dir: "{{ playbook_dir }}"
     build_dir: "{{ project_dir }}/build/linux_x86"
     binary_name: "azure2openai"
+    systemd_name: "azure2openai"
+    deploy_dir: "/usr/local/bin"
 
   tasks:
     - name: Build the binary
-      ansible.builtin.command:
+      local_action:
+        module: ansible.builtin.command
         cmd: "make buildLinuxX86"
         chdir: "{{ project_dir }}"
       register: build_result
       changed_when: build_result.rc == 0
+      run_once: true
 
-
-    - name: Check if the binary exists
-      ansible.builtin.stat:
+    - name: Check if the binary exists locally
+      local_action:
+        module: ansible.builtin.stat
         path: "{{ build_dir }}/{{ binary_name }}"
       register: binary_stat
-
-    - name: Set binary_stat as a fact
-      ansible.builtin.set_fact:
-        global_binary_stat: "{{ binary_stat }}"
+      run_once: true
 
     - name: Fail if binary does not exist
       ansible.builtin.fail:
         msg: "Binary file not found at {{ build_dir }}/{{ binary_name }}"
       when: not binary_stat.stat.exists
+      run_once: true
 
-
-- name: Deploy azure2openai
-  hosts: web_servers
-  become: true
-
-  vars:
-    project_dir: "{{ playbook_dir }}"
-    binary_name: "azure2openai"
-    systemd_name: "azure2openai"
-    deploy_dir: "/usr/local/bin"
-    build_dir: "{{ project_dir }}/build/linux_x86"
-
-  tasks:
     - name: Check if binary exists on target host
       ansible.builtin.stat:
         path: "{{ deploy_dir }}/{{ binary_name }}"
       register: remote_binary_stat
 
+    - name: Check if systemd service on target host
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ systemd_name }}.service"
+      register: remote_systemd_stat
+
     - name: Copy binary to deploy directory
+      become: true
       ansible.builtin.copy:
         src: "{{ build_dir }}/{{ binary_name }}"
         dest: "{{ deploy_dir }}/{{ binary_name }}"
         mode: '0755'
-      when: not remote_binary_stat.stat.exists or remote_binary_stat.stat.checksum != hostvars['localhost']['global_binary_stat'].stat.checksum
+      when: not remote_binary_stat.stat.exists or remote_binary_stat.stat.checksum != binary_stat.stat.checksum
       notify: Restart service
-
+      
     - name: Ensure systemd service file exists
+      become: true
       ansible.builtin.template:
         src: "{{ project_dir }}/templates/azure2openai.service.j2"
         dest: "/etc/systemd/system/{{ systemd_name }}.service"
         mode: '0644'
+      when: not remote_systemd_stat.stat.exists
       notify: Restart service
 
     - name: Ensure service is enabled and started
+      become: true
       ansible.builtin.systemd:
         name: "{{ systemd_name }}"
         state: started
@@ -72,6 +70,7 @@
 
   handlers:
     - name: Restart service
+      become: true
       ansible.builtin.systemd:
         name: "{{ systemd_name }}"
         state: restarted
