@@ -1,0 +1,13 @@
+[Unit]
+Description=Docker Mirror Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Restart=on-failure
+RestartSec=5s
+ExecStart=/usr/local/bin/azure2openai -config /etc/azure2openai/config.json
+
+[Install]
+WantedBy=multi-user.target
