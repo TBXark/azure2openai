@@ -5,3 +5,9 @@ buildLinuxX86:
 .PHONY: deploy
 deploy:
 	ansible-playbook -i inventory.ini playbook.yaml
+
+
+.PHONY: buildImage
+buildImage: buildLinuxX86
+	docker buildx build --platform=linux/amd64 -t ghcr.io/tbxark/azure2openai:latest .
+	docker push ghcr.io/tbxark/azure2openai:latest
