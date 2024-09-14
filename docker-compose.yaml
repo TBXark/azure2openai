@@ -1,0 +1,10 @@
+services:
+  app:
+    image: ghcr.io/tbxark/azure2openai:latest
+    pull_policy: always
+    volumes:
+      - ./config.json:/config.json
+    ports:
+      - 8789:8789
+    restart: always
+    command: ["--config", "/config.json"]
