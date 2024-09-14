@@ -7,4 +7,4 @@ RUN make build
 FROM alpine:latest
 COPY --from=builder /app/build/azure2openai /main
 ENTRYPOINT ["/main"]
-CMD ["--config", "/config/config.json"]
+CMD ["--config", "/config.json"]
