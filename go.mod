@@ -1,3 +1,3 @@
-module azure2openai
+module github.com/TBXark/azure2openai
 
 go 1.22

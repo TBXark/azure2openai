@@ -13,6 +13,8 @@ import (
 	"strings"
 )
 
+var BuildVersion string
+
 type Config struct {
 	EndpointFormat struct {
 		ChatCompletions  string `json:"chat_completions"`
@@ -128,10 +130,16 @@ func azureRedirect(endpoint string, config *Config) func(http.ResponseWriter, *h
 }
 
 func main() {
-	c := flag.String("config", "config.json", "config file path")
+	conf := flag.String("config", "config.json", "config file path")
+	help := flag.Bool("help", false, "show help")
 	flag.Parse()
+	if *help {
+		fmt.Printf("Version: %s\n", BuildVersion)
+		flag.Usage()
+		return
+	}
 
-	config, err := NewConfig(*c)
+	config, err := NewConfig(*conf)
 	if err != nil {
 		log.Fatal(err)
 	}
