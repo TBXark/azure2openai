@@ -143,7 +143,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	startServer(config)
+}
 
+func startServer(config *Config) {
 	http.HandleFunc("/v1/chat/completions", azureRedirect(config.EndpointFormat.ChatCompletions, config))
 	http.HandleFunc("images/generations", azureRedirect(config.EndpointFormat.ImageGenerations, config))
 	http.HandleFunc("/v1/models", azureRedirect(config.EndpointFormat.Models, config))
