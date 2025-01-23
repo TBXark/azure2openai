@@ -6,10 +6,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/TBXark/confstore"
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 )
 
@@ -23,33 +23,6 @@ type Config struct {
 	} `json:"endpoint_format"`
 	ModelMap map[string]string `json:"model_map"`
 	Address  string            `json:"address"`
-}
-
-func NewConfig(path string) (*Config, error) {
-	if strings.HasPrefix(path, "http") {
-		resp, err := http.Get(path)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		config := &Config{}
-		err = json.NewDecoder(resp.Body).Decode(config)
-		if err != nil {
-			return nil, err
-		}
-		return config, nil
-	} else {
-		bytes, err := os.ReadFile(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		config := &Config{}
-		err = json.Unmarshal(bytes, config)
-		if err != nil {
-			return nil, err
-		}
-		return config, nil
-	}
 }
 
 type HTTPError struct {
@@ -139,7 +112,7 @@ func main() {
 		return
 	}
 
-	config, err := NewConfig(*conf)
+	config, err := confstore.Load[Config](*conf)
 	if err != nil {
 		log.Fatal(err)
 	}
