@@ -6,11 +6,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/TBXark/confstore"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/go-sphere/confstore"
+	"github.com/go-sphere/confstore/codec"
+	"github.com/go-sphere/confstore/provider"
+	"github.com/go-sphere/confstore/provider/file"
+	httpProvider "github.com/go-sphere/confstore/provider/http"
 )
 
 var BuildVersion string
@@ -112,7 +117,7 @@ func main() {
 		return
 	}
 
-	config, err := confstore.Load[Config](*conf)
+	config, err := newConfig(*conf)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -125,4 +130,24 @@ func startServer(config *Config) {
 	http.HandleFunc("/v1/models", azureRedirect(config.EndpointFormat.Models, config))
 	log.Printf("listening on %s", config.Address)
 	log.Fatal(http.ListenAndServe(config.Address, nil))
+}
+
+func newConfig(path string) (*Config, error) {
+	prov, err := provider.Selector(
+		path,
+		provider.If(file.IsLocalPath, func(s string) provider.Provider {
+			return file.New(path, file.WithExpandEnv())
+		}),
+		provider.If(httpProvider.IsRemoteURL, func(s string) provider.Provider {
+			return httpProvider.New(path, httpProvider.WithTimeout(10))
+		}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	config, err := confstore.Load[Config](prov, codec.JsonCodec())
+	if err != nil {
+		return nil, err
+	}
+	return config, nil
 }
